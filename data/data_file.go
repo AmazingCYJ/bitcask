@@ -22,6 +22,6 @@ func (df *DataFile) Close() error {
 func (df *DataFile) WriteAt(p []byte, off int64) error {
 	return nil
 }
-func (df *DataFile) ReadLogRecord(off int64) (*LogRecord, error) {
-	return nil, nil
+func (df *DataFile) ReadLogRecord(off int64) (*LogRecord, int64, error) {
+	return nil, 0, nil
 }

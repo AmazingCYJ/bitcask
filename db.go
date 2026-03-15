@@ -5,6 +5,7 @@ import (
 	"bitcask-my/data"
 	"bitcask-my/index"
 	"errors"
+	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -21,6 +22,7 @@ type DB struct {
 	index     index.Indexer             //内存索引
 }
 
+// Open 打开或创建一个 Bitcask 数据库实例，加载数据文件并构建内存索引。
 func Open(options Options) (*DB, error) {
 	//1.配置校验
 	if err := checkOptions(options); err != nil {
@@ -44,8 +46,8 @@ func Open(options Options) (*DB, error) {
 	if err := db.loadDataFiles(); err != nil {
 		return nil, err
 	}
-	//5.构建内存索引
-	if err := db.buildIndex(); err != nil {
+	//5.从数据文件加载索引到内存
+	if err := db.loadIndexFromDataFiles(); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -140,9 +142,54 @@ func (db *DB) setActiveDataFile() error {
 	return nil
 }
 
-// 构建内存索引
-func (db *DB) buildIndex() error {
-	//1.遍历旧文件集合和活跃文件
+// 从数据文件加载索引到内存
+// 遍历文件中的所有记录 并更新到内存索引中去
+func (db *DB) loadIndexFromDataFiles() error {
+	//1.没有文件, 数据库为空 直接返回
+	if len(db.fileIds) == 0 {
+		return nil
+	}
+	//2.遍历所有文件Id,处理文件中的记录
+	for i, fid := range db.fileIds {
+		var fileId = uint32(fid)
+		var dataFile *data.DataFile
+		if db.aciveFile.FileID == fileId {
+			dataFile = db.aciveFile
+		} else {
+			dataFile = db.oldfiles[fileId]
+		}
+		if dataFile == nil {
+			return ErrDataFileNotFound
+		}
+		// 2.1循环处理文件中的数据
+		var offset int64 = 0
+		for {
+			logRecord, size, err := dataFile.ReadLogRecord(offset)
+			if err != nil {
+				//如果读取到文件末尾，跳出循环
+				if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) {
+					break
+				}
+				return err
+			}
+			//2.1.1更新内存索引
+			pos := &data.LogRecordPos{
+				Fid:    fileId,
+				Offset: offset,
+			}
+			if logRecord.Type == data.LogRecordDeleted {
+				db.index.Delete(logRecord.Key)
+			} else {
+				db.index.Put(logRecord.Key, pos)
+			}
+			//2.1.2更新偏移量，指向下一个记录的位置
+			offset += size
+		}
+		//2.2 如果是活跃文件，更新写入偏移
+		if i == len(db.fileIds)-1 {
+			db.aciveFile.WriteOff = offset
+		}
+	}
 	return nil
 }
 
@@ -211,7 +258,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 		return nil, ErrDataFileNotFound
 	}
 	//5.根据文件偏移读取数据记录
-	logRecord, err := dataFile.ReadLogRecord(logRecordPos.Offset)
+	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +267,31 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 		return nil, ErrKeyNotFound
 	}
 	return logRecord.Value, nil
+}
+
+// 删除数据
+func (db *DB) Delete(key []byte) error {
+	//1.判断key是否有效
+	if len(key) == 0 {
+		return ErrKeyNotFound
+	}
+	//2.查找key 不加判断会导致删除无效key时，写入一条无效记录到数据文件中，浪费存储空间
+	if pos := db.index.Get(key); pos == nil {
+		return nil
+	}
+	//3.创建删除记录并写入数据文件
+	logRecord := &data.LogRecord{
+		Key:  key,
+		Type: data.LogRecordDeleted,
+	}
+	if _, err := db.appendLogRecord(logRecord); err != nil {
+		return nil
+	}
+	//4.更新内存索引
+	if err := db.index.Delete(key); err != nil {
+		return err
+	}
+	return nil
 }
 
 // 可以使用 go-playground/validator 进行更复杂的配置校验
