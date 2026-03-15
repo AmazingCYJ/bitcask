@@ -1,0 +1,34 @@
+# 二进制文件
+*.exe
+*.out
+*.bin
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 依赖
+vendor/
+
+# 构建产物
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.github
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 测试覆盖率
+*.coverprofile
+coverage.out
+
+# 日志
+*.log
+logs/
