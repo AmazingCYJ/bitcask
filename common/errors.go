@@ -8,4 +8,5 @@ var (
 	ErrIndexUpdateFailed      = errors.New("index update failed")
 	ErrDataFileNotFound       = errors.New("data file not found")
 	ErrDataDirectoryCorrupted = errors.New("data directory is corrupted")
+	ErrInvlidCRC              = errors.New("invalid CRC, data may be corrupted")
 )
