@@ -59,6 +59,9 @@ func (df *DataFile) ReadLogRecord(off int64) (*LogRecord, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
+	if off >= size {
+		return nil, 0, io.EOF
+	}
 	var headerBytes int64 = maxLogRecordHeardSize
 	// 如果剩余数据不足一个完整的记录头部，则只读取剩余的数据
 	if off+maxLogRecordHeardSize > size {

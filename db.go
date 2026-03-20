@@ -59,14 +59,13 @@ func (db *DB) Put(key, value []byte) error {
 	if len(key) == 0 {
 		return ErrKeyNotFound
 	}
-	return nil
 	// 创建 logRecord 并写入数据文件
-	log_record := &data.LogRecord{
+	logRecord := &data.LogRecord{
 		Key:   key,
 		Value: value,
 		Type:  data.LogRecordNormal,
 	}
-	pos, err := db.appendLogRecord(log_record)
+	pos, err := db.appendLogRecord(logRecord)
 	if err != nil {
 		return err
 	}
@@ -217,6 +216,7 @@ func (db *DB) loadDataFiles() error {
 	}
 	//3.根据文件ID排序，确保旧文件按顺序加载
 	sort.Ints(fileIds)
+	db.fileIds = fileIds
 	//4.加载数据文件
 	for i, fileId := range fileIds {
 		dataFile, err := data.OpenDataFile(db.options.DirPath, uint32(fileId))
@@ -285,7 +285,7 @@ func (db *DB) Delete(key []byte) error {
 		Type: data.LogRecordDeleted,
 	}
 	if _, err := db.appendLogRecord(logRecord); err != nil {
-		return nil
+		return err
 	}
 	//4.更新内存索引
 	if err := db.index.Delete(key); err != nil {
