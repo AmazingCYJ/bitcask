@@ -18,7 +18,7 @@ type Indexer interface {
 	Delete(key []byte) error
 }
 
-func NewIndexer(idextype IndexType) Indexer {
+func NewIndexer(idextype IndexerType) Indexer {
 	switch idextype {
 	case BTreeIndex:
 		return NewBTree()
