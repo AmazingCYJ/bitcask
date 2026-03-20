@@ -40,3 +40,21 @@ type Item struct {
 func (i *Item) Less(than btree.Item) bool {
 	return string(i.key) < string(than.(*Item).key)
 }
+
+// IndexIterator 通用索引迭代器
+type IndexIterator interface {
+	// Rewind 将迭代器重置到起始位置。
+	Rewind()
+	// Seek 将迭代器移动到指定 key 的位置。
+	Seek(key []byte)
+	// Next 将迭代器移动到下一个位置。
+	Next()
+	// Valid 检查迭代器当前是否有效。
+	Vaild() bool
+	// Key 返回当前迭代器位置的 key。
+	Key() []byte
+	// Value 返回当前迭代器位置的 value。
+	Value() *data.LogRecordPos
+	// Close 关闭迭代器，释放相关资源。
+	Close()
+}
