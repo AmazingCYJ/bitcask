@@ -20,6 +20,7 @@ type DB struct {
 	aciveFile *data.DataFile            //活跃文件
 	oldfiles  map[uint32]*data.DataFile //旧文件
 	index     index.Indexer             //内存索引
+	seqNo     uint64                    //事务的序列号 用于实现事务的原子性和一致性
 }
 
 // Open 打开或创建一个 Bitcask 数据库实例，加载数据文件并构建内存索引。
@@ -65,7 +66,7 @@ func (db *DB) Put(key, value []byte) error {
 		Value: value,
 		Type:  data.LogRecordNormal,
 	}
-	pos, err := db.appendLogRecord(logRecord)
+	pos, err := db.appendLogRecordWithLock(logRecord)
 	if err != nil {
 		return err
 	}
@@ -138,8 +139,6 @@ func (db *DB) getValueByPos(logRecordPos *data.LogRecordPos) ([]byte, error) {
 
 // 追加写入数据记录到数据文件，并返回记录在文件中的位置（LogRecordPos）
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
 	//判断活跃文件是否存在
 	if db.aciveFile == nil {
 		if err := db.setActiveDataFile(); err != nil {
@@ -181,6 +180,12 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 		Offset: writeOff,
 	}
 	return pos, nil
+}
+
+func (db *DB) appendLogRecordWithLock(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.appendLogRecord(logRecord)
 }
 
 // 设置当前活跃文件
@@ -320,7 +325,7 @@ func (db *DB) Delete(key []byte) error {
 		Key:  key,
 		Type: data.LogRecordDeleted,
 	}
-	if _, err := db.appendLogRecord(logRecord); err != nil {
+	if _, err := db.appendLogRecordWithLock(logRecord); err != nil {
 		return err
 	}
 	//4.更新内存索引

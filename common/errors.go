@@ -9,4 +9,5 @@ var (
 	ErrDataFileNotFound       = errors.New("data file not found")
 	ErrDataDirectoryCorrupted = errors.New("data directory is corrupted")
 	ErrInvlidCRC              = errors.New("invalid CRC, data may be corrupted")
+	ErrBatchTooLarge          = errors.New("batch size exceeds the maximum limit")
 )
