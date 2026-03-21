@@ -24,7 +24,7 @@ func TestBTreeIteratorForward(t *testing.T) {
 
 	var gotKeys []string
 	var gotOffsets []int64
-	for ; it.Vaild(); it.Next() {
+	for ; it.Valid(); it.Next() {
 		gotKeys = append(gotKeys, string(it.Key()))
 		gotOffsets = append(gotOffsets, it.Value().Offset)
 	}
@@ -55,7 +55,7 @@ func TestBTreeIteratorReverse(t *testing.T) {
 	it.Rewind()
 
 	var gotKeys []string
-	for ; it.Vaild(); it.Next() {
+	for ; it.Valid(); it.Next() {
 		gotKeys = append(gotKeys, string(it.Key()))
 	}
 
@@ -79,17 +79,17 @@ func TestBTreeIteratorSeekForward(t *testing.T) {
 	it := bt.Iterator(false)
 
 	it.Seek([]byte("c"))
-	if !it.Vaild() || string(it.Key()) != "c" {
-		t.Fatalf("Seek(c) key = %q, valid = %v, want key c and valid true", it.Key(), it.Vaild())
+	if !it.Valid() || string(it.Key()) != "c" {
+		t.Fatalf("Seek(c) key = %q, valid = %v, want key c and valid true", it.Key(), it.Valid())
 	}
 
 	it.Seek([]byte("b"))
-	if !it.Vaild() || string(it.Key()) != "c" {
-		t.Fatalf("Seek(b) key = %q, valid = %v, want key c and valid true", it.Key(), it.Vaild())
+	if !it.Valid() || string(it.Key()) != "c" {
+		t.Fatalf("Seek(b) key = %q, valid = %v, want key c and valid true", it.Key(), it.Valid())
 	}
 
 	it.Seek([]byte("z"))
-	if it.Vaild() {
+	if it.Valid() {
 		t.Fatalf("Seek(z) valid = true, want false")
 	}
 }
@@ -103,17 +103,17 @@ func TestBTreeIteratorSeekReverse(t *testing.T) {
 	it := bt.Iterator(true)
 
 	it.Seek([]byte("d"))
-	if !it.Vaild() || string(it.Key()) != "c" {
-		t.Fatalf("Seek(d) key = %q, valid = %v, want key c and valid true", it.Key(), it.Vaild())
+	if !it.Valid() || string(it.Key()) != "c" {
+		t.Fatalf("Seek(d) key = %q, valid = %v, want key c and valid true", it.Key(), it.Valid())
 	}
 
 	it.Seek([]byte("z"))
-	if !it.Vaild() || string(it.Key()) != "e" {
-		t.Fatalf("Seek(z) key = %q, valid = %v, want key e and valid true", it.Key(), it.Vaild())
+	if !it.Valid() || string(it.Key()) != "e" {
+		t.Fatalf("Seek(z) key = %q, valid = %v, want key e and valid true", it.Key(), it.Valid())
 	}
 
 	it.Seek([]byte("0"))
-	if it.Vaild() {
+	if it.Valid() {
 		t.Fatalf("Seek(0) valid = true, want false")
 	}
 }
@@ -126,17 +126,17 @@ func TestBTreeIteratorRewindAndClose(t *testing.T) {
 	it := bt.Iterator(false)
 	it.Next()
 	it.Next()
-	if it.Vaild() {
+	if it.Valid() {
 		t.Fatalf("after moving twice, valid = true, want false")
 	}
 
 	it.Rewind()
-	if !it.Vaild() || string(it.Key()) != "a" {
-		t.Fatalf("after Rewind key = %q, valid = %v, want key a and valid true", it.Key(), it.Vaild())
+	if !it.Valid() || string(it.Key()) != "a" {
+		t.Fatalf("after Rewind key = %q, valid = %v, want key a and valid true", it.Key(), it.Valid())
 	}
 
 	it.Close()
-	if it.Vaild() {
+	if it.Valid() {
 		t.Fatalf("after Close valid = true, want false")
 	}
 	if it.Key() != nil {

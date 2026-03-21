@@ -119,13 +119,13 @@ func (bti *BTreeIterator) Next() {
 }
 
 // Vaild 检查迭代器当前是否有效。
-func (bti *BTreeIterator) Vaild() bool {
+func (bti *BTreeIterator) Valid() bool {
 	return bti.currIndex < len(bti.item)
 }
 
 // Key 返回当前迭代器位置的 key。
 func (bti *BTreeIterator) Key() []byte {
-	if bti.Vaild() {
+	if bti.Valid() {
 		return bti.item[bti.currIndex].key
 	}
 	return nil
@@ -133,7 +133,7 @@ func (bti *BTreeIterator) Key() []byte {
 
 // Value 返回当前迭代器位置的 value。
 func (bti *BTreeIterator) Value() *data.LogRecordPos {
-	if bti.Vaild() {
+	if bti.Valid() {
 		return bti.item[bti.currIndex].pos
 	}
 	return nil

@@ -138,3 +138,186 @@ func TestOpenReloadIndexFromDataFiles(t *testing.T) {
 		t.Fatalf("Get(k2) after reopen error = %v, want ErrKeyNotFound", err)
 	}
 }
+
+func TestIteratorForward(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(testOptions(dir))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	kvPairs := []struct {
+		key   string
+		value string
+	}{
+		{"c", "value_c"},
+		{"a", "value_a"},
+		{"b", "value_b"},
+	}
+
+	for _, kv := range kvPairs {
+		if err := db.Put([]byte(kv.key), []byte(kv.value)); err != nil {
+			t.Fatalf("Put(%q) error = %v", kv.key, err)
+		}
+	}
+
+	it := db.NewIterator(common.DefaultIteratorOptions)
+	defer it.Close()
+
+	var gotKeys []string
+	var gotValues []string
+	for it.Rewind(); it.Vaild(); it.Next() {
+		key := it.Key()
+		value, err := it.Value()
+		if err != nil {
+			t.Fatalf("Value() error = %v", err)
+		}
+		gotKeys = append(gotKeys, string(key))
+		gotValues = append(gotValues, string(value))
+	}
+
+	wantKeys := []string{"a", "b", "c"}
+	wantValues := []string{"value_a", "value_b", "value_c"}
+
+	if len(gotKeys) != len(wantKeys) {
+		t.Fatalf("len(keys) = %d, want %d", len(gotKeys), len(wantKeys))
+	}
+	for i := range wantKeys {
+		if gotKeys[i] != wantKeys[i] {
+			t.Fatalf("key[%d] = %q, want %q", i, gotKeys[i], wantKeys[i])
+		}
+		if gotValues[i] != wantValues[i] {
+			t.Fatalf("value[%d] = %q, want %q", i, gotValues[i], wantValues[i])
+		}
+	}
+}
+
+func TestIteratorReverse(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(testOptions(dir))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	kvPairs := []struct {
+		key   string
+		value string
+	}{
+		{"a", "value_a"},
+		{"b", "value_b"},
+		{"c", "value_c"},
+	}
+
+	for _, kv := range kvPairs {
+		if err := db.Put([]byte(kv.key), []byte(kv.value)); err != nil {
+			t.Fatalf("Put(%q) error = %v", kv.key, err)
+		}
+	}
+
+	opts := common.IteratorOptions{Reverse: true}
+	it := db.NewIterator(opts)
+	defer it.Close()
+
+	var gotKeys []string
+	for it.Rewind(); it.Vaild(); it.Next() {
+		gotKeys = append(gotKeys, string(it.Key()))
+	}
+
+	wantKeys := []string{"c", "b", "a"}
+	if len(gotKeys) != len(wantKeys) {
+		t.Fatalf("len(keys) = %d, want %d", len(gotKeys), len(wantKeys))
+	}
+	for i := range wantKeys {
+		if gotKeys[i] != wantKeys[i] {
+			t.Fatalf("key[%d] = %q, want %q", i, gotKeys[i], wantKeys[i])
+		}
+	}
+}
+
+func TestIteratorWithPrefix(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(testOptions(dir))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	kvPairs := []struct {
+		key   string
+		value string
+	}{
+		{"user:1", "alice"},
+		{"user:2", "bob"},
+		{"post:1", "hello"},
+		{"post:2", "world"},
+		{"user:3", "charlie"},
+	}
+
+	for _, kv := range kvPairs {
+		if err := db.Put([]byte(kv.key), []byte(kv.value)); err != nil {
+			t.Fatalf("Put(%q) error = %v", kv.key, err)
+		}
+	}
+
+	opts := common.IteratorOptions{Prefix: []byte("user:")}
+	it := db.NewIterator(opts)
+	defer it.Close()
+
+	var gotKeys []string
+	for it.Rewind(); it.Vaild(); it.Next() {
+		gotKeys = append(gotKeys, string(it.Key()))
+	}
+
+	wantKeys := []string{"user:1", "user:2", "user:3"}
+	if len(gotKeys) != len(wantKeys) {
+		t.Fatalf("len(keys with prefix) = %d, want %d", len(gotKeys), len(wantKeys))
+	}
+	for i := range wantKeys {
+		if gotKeys[i] != wantKeys[i] {
+			t.Fatalf("key[%d] = %q, want %q", i, gotKeys[i], wantKeys[i])
+		}
+	}
+}
+
+func TestIteratorSeek(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(testOptions(dir))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	kvPairs := []struct {
+		key string
+	}{
+		{"a"},
+		{"c"},
+		{"e"},
+	}
+
+	for _, kv := range kvPairs {
+		if err := db.Put([]byte(kv.key), []byte("value")); err != nil {
+			t.Fatalf("Put(%q) error = %v", kv.key, err)
+		}
+	}
+
+	opts := common.DefaultIteratorOptions
+	it := db.NewIterator(opts)
+	defer it.Close()
+
+	// Seek to "c", should find it
+	it.Seek([]byte("c"))
+	if !it.Vaild() || string(it.Key()) != "c" {
+		t.Fatalf("Seek(c) key = %q, valid = %v, want key c and valid true", it.Key(), it.Vaild())
+	}
+
+	// Seek to "b", should find closest >= "b" which is "c"
+	it.Seek([]byte("b"))
+	if !it.Vaild() || string(it.Key()) != "c" {
+		t.Fatalf("Seek(b) key = %q, valid = %v, want key c and valid true", it.Key(), it.Vaild())
+	}
+
+	// Seek to "z", should be invalid
+	it.Seek([]byte("z"))
+	if it.Vaild() {
+		t.Fatalf("Seek(z) valid = true, want false")
+	}
+}

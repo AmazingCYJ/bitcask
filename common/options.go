@@ -8,6 +8,10 @@ type Options struct {
 	IndexType    IndexerType // 索引类型
 	SyncWrites   bool        // 是否在每次写入后立即将数据刷新到磁盘
 }
+type IteratorOptions struct {
+	Prefix  []byte // 迭代器只返回以该前缀开头的 key
+	Reverse bool   // 是否反向迭代
+}
 
 type IndexerType = int8
 
@@ -28,4 +32,8 @@ var DefaultOptions = Options{
 	DataFileSize: 256 * 1024 * 1024, // 默认数据文件大小为 256MB
 	IndexType:    BTreeIndex,        // 默认使用 BTree 索引
 	SyncWrites:   false,             // 默认启用同步写入
+}
+var DefaultIteratorOptions = IteratorOptions{
+	Prefix:  nil,   // 默认不使用前缀过滤
+	Reverse: false, // 默认正向迭代
 }

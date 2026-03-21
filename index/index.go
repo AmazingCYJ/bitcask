@@ -52,7 +52,7 @@ type IndexIterator interface {
 	// Next 将迭代器移动到下一个位置。
 	Next()
 	// Valid 检查迭代器当前是否有效。
-	Vaild() bool
+	Valid() bool
 	// Key 返回当前迭代器位置的 key。
 	Key() []byte
 	// Value 返回当前迭代器位置的 value。

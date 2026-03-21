@@ -76,8 +76,35 @@ func (db *DB) Put(key, value []byte) error {
 	return nil
 }
 
-//追加写入数据记录到数据文件，并返回记录在文件中的位置（LogRecordPos）
+func (db *DB) getValueByPos(logRecordPos *data.LogRecordPos) ([]byte, error) {
+	//1.判断数据位置是否有效
+	if logRecordPos == nil {
+		return nil, ErrKeyNotFound
+	}
+	//2.跟剧文件ID找到对应的数据文件
+	var dataFile *data.DataFile
+	if db.aciveFile.FileID == logRecordPos.Fid {
+		dataFile = db.aciveFile
+	} else {
+		dataFile = db.oldfiles[logRecordPos.Fid]
+	}
+	//3.数据文件为空
+	if dataFile == nil {
+		return nil, ErrDataFileNotFound
+	}
+	//4.根据文件偏移读取数据记录
+	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
+	if err != nil {
+		return nil, err
+	}
+	//5.判断数据记录类型
+	if logRecord.Type == data.LogRecordDeleted {
+		return nil, ErrKeyNotFound
+	}
+	return logRecord.Value, nil
+}
 
+// 追加写入数据记录到数据文件，并返回记录在文件中的位置（LogRecordPos）
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -243,30 +270,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	}
 	//2.从内存数据结构中拿出 key对应的索引信息
 	logRecordPos := db.index.Get(key)
-	if logRecordPos == nil {
-		return nil, ErrKeyNotFound
-	}
-	//3.跟剧文件ID找到对应的数据文件
-	var dataFile *data.DataFile
-	if db.aciveFile.FileID == logRecordPos.Fid {
-		dataFile = db.aciveFile
-	} else {
-		dataFile = db.oldfiles[logRecordPos.Fid]
-	}
-	//4.数据文件为空
-	if dataFile == nil {
-		return nil, ErrDataFileNotFound
-	}
-	//5.根据文件偏移读取数据记录
-	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
-	if err != nil {
-		return nil, err
-	}
-	//6.判断数据记录类型
-	if logRecord.Type == data.LogRecordDeleted {
-		return nil, ErrKeyNotFound
-	}
-	return logRecord.Value, nil
+	return db.getValueByPos(logRecordPos)
 }
 
 // 删除数据
