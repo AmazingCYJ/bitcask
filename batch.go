@@ -24,7 +24,7 @@ func (db *DB) NewWriteBatch(options common.WriteBatchOptions) *WriteBatch {
 		options:       options,
 		mu:            &sync.Mutex{},
 		db:            db,
-		pendingWrites: map[string]*data.LogRecord{},
+		pendingWrites: make(map[string]*data.LogRecord),
 	}
 }
 
@@ -117,10 +117,13 @@ func (wb *WriteBatch) Commit() error {
 		pos := postions[string(record.Key)]
 		if record.Type == data.LogRecordDeleted {
 			wb.db.index.Delete(record.Key)
-		} else {
+		}
+		if record.Type == data.LogRecordNormal {
 			wb.db.index.Put(record.Key, pos)
 		}
 	}
+	// 6.清空批次中的待处理写入操作
+	wb.pendingWrites = make(map[string]*data.LogRecord)
 	return nil
 }
 
