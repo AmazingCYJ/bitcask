@@ -321,3 +321,151 @@ func TestIteratorSeek(t *testing.T) {
 		t.Fatalf("Seek(z) valid = true, want false")
 	}
 }
+
+func TestListKeys(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(testOptions(dir))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	// Test empty database
+	keys, err := db.ListKeys()
+	if err != nil {
+		t.Fatalf("ListKeys() on empty db error = %v", err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("ListKeys() on empty db = %d keys, want 0", len(keys))
+	}
+
+	// Add some key-value pairs
+	kvPairs := []struct {
+		key   string
+		value string
+	}{
+		{"z", "value_z"},
+		{"a", "value_a"},
+		{"m", "value_m"},
+		{"b", "value_b"},
+	}
+
+	for _, kv := range kvPairs {
+		if err := db.Put([]byte(kv.key), []byte(kv.value)); err != nil {
+			t.Fatalf("Put(%q) error = %v", kv.key, err)
+		}
+	}
+
+	// List all keys
+	keys, err = db.ListKeys()
+	if err != nil {
+		t.Fatalf("ListKeys() error = %v", err)
+	}
+
+	wantKeys := []string{"a", "b", "m", "z"}
+	if len(keys) != len(wantKeys) {
+		t.Fatalf("ListKeys() len = %d, want %d", len(keys), len(wantKeys))
+	}
+	for i := range wantKeys {
+		if string(keys[i]) != wantKeys[i] {
+			t.Fatalf("key[%d] = %q, want %q", i, keys[i], wantKeys[i])
+		}
+	}
+
+	// Delete one key and check again
+	if err := db.Delete([]byte("m")); err != nil {
+		t.Fatalf("Delete(m) error = %v", err)
+	}
+	keys, err = db.ListKeys()
+	if err != nil {
+		t.Fatalf("ListKeys() after delete error = %v", err)
+	}
+
+	wantKeysAfterDelete := []string{"a", "b", "z"}
+	if len(keys) != len(wantKeysAfterDelete) {
+		t.Fatalf("ListKeys() after delete len = %d, want %d", len(keys), len(wantKeysAfterDelete))
+	}
+	for i := range wantKeysAfterDelete {
+		if string(keys[i]) != wantKeysAfterDelete[i] {
+			t.Fatalf("key[%d] = %q, want %q", i, keys[i], wantKeysAfterDelete[i])
+		}
+	}
+}
+
+func TestFold(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(testOptions(dir))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	// Test empty database
+	callCount := 0
+	err = db.Fold(func(key, value []byte) bool {
+		callCount++
+		return true
+	})
+	if err != nil {
+		t.Fatalf("Fold() on empty db error = %v", err)
+	}
+	if callCount != 0 {
+		t.Fatalf("Fold() on empty db callback count = %d, want 0", callCount)
+	}
+
+	// Add some key-value pairs
+	kvPairs := []struct {
+		key   string
+		value string
+	}{
+		{"c", "value_c"},
+		{"a", "value_a"},
+		{"b", "value_b"},
+	}
+
+	for _, kv := range kvPairs {
+		if err := db.Put([]byte(kv.key), []byte(kv.value)); err != nil {
+			t.Fatalf("Put(%q) error = %v", kv.key, err)
+		}
+	}
+
+	// Fold over all pairs
+	var gotKeys []string
+	var gotValues []string
+	err = db.Fold(func(key, value []byte) bool {
+		gotKeys = append(gotKeys, string(key))
+		gotValues = append(gotValues, string(value))
+		return true
+	})
+	if err != nil {
+		t.Fatalf("Fold() error = %v", err)
+	}
+
+	wantKeys := []string{"a", "b", "c"}
+	wantValues := []string{"value_a", "value_b", "value_c"}
+	if len(gotKeys) != len(wantKeys) {
+		t.Fatalf("Fold() len = %d, want %d", len(gotKeys), len(wantKeys))
+	}
+	for i := range wantKeys {
+		if gotKeys[i] != wantKeys[i] {
+			t.Fatalf("key[%d] = %q, want %q", i, gotKeys[i], wantKeys[i])
+		}
+		if gotValues[i] != wantValues[i] {
+			t.Fatalf("value[%d] = %q, want %q", i, gotValues[i], wantValues[i])
+		}
+	}
+
+	// Test early stop: return false on second key
+	gotKeys = nil
+	err = db.Fold(func(key, value []byte) bool {
+		gotKeys = append(gotKeys, string(key))
+		return len(gotKeys) < 2
+	})
+	if err != nil {
+		t.Fatalf("Fold() with early stop error = %v", err)
+	}
+	if len(gotKeys) != 2 {
+		t.Fatalf("Fold() with early stop len = %d, want 2", len(gotKeys))
+	}
+	if gotKeys[0] != "a" || gotKeys[1] != "b" {
+		t.Fatalf("Fold() with early stop keys = %v, want [a b]", gotKeys)
+	}
+}

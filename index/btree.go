@@ -54,6 +54,14 @@ func (bt *BTree) Delete(key []byte) error {
 	return nil
 }
 
+// / Size 返回索引中键值对的数量。
+func (bt *BTree) Size() int {
+	bt.lock.RLock()
+	defer bt.lock.RUnlock()
+
+	return bt.tree.Len()
+}
+
 // Iterator 获取索引迭代器，支持正向和反向迭代。
 func (bt *BTree) Iterator(reverse bool) IndexIterator {
 	bt.lock.RLock()

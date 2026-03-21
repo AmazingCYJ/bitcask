@@ -76,6 +76,38 @@ func (db *DB) Put(key, value []byte) error {
 	return nil
 }
 
+// ListKeys 列出数据库中所有的 key，返回一个包含所有 key 的切片。
+func (db *DB) ListKeys() ([][]byte, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	var keys [][]byte
+	iter := db.index.Iterator(false)
+	defer iter.Close()
+	for iter.Rewind(); iter.Valid(); iter.Next() {
+		keys = append(keys, iter.Key())
+	}
+	return keys, nil
+}
+
+// Fold 获取所有的数据 并执行用户指定的操作
+func (db *DB) Fold(fn func(key, value []byte) bool) error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	iter := db.index.Iterator(false)
+	defer iter.Close()
+	for iter.Rewind(); iter.Valid(); iter.Next() {
+		value, err := db.getValueByPos(iter.Value())
+		if err != nil {
+			return err
+		}
+		if !fn(iter.Key(), value) {
+			break
+		}
+	}
+	return nil
+}
+
+// getValueByPos 根据给定的 LogRecordPos 从数据文件中读取对应的 value，并处理相关错误。
 func (db *DB) getValueByPos(logRecordPos *data.LogRecordPos) ([]byte, error) {
 	//1.判断数据位置是否有效
 	if logRecordPos == nil {
