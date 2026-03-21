@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 )
 
+var txnFinKey = []byte("txn_fin")
+
 // WriteBatch 原子批量写数据 保证原子性
 type WriteBatch struct {
 	options       common.WriteBatchOptions
@@ -95,6 +97,29 @@ func (wb *WriteBatch) Commit() error {
 		}
 		postions[string(logRecord.Key)] = logRecordPos
 
+	}
+	// 3.写一条标识事务完成的数据
+	finishLogRecord := &data.LogRecord{
+		Key:  logRecordKeyWithSeq(txnFinKey, seqNo),
+		Type: data.LogRecordTxnFinished,
+	}
+	if _, err := wb.db.appendLogRecord(finishLogRecord); err != nil {
+		return err
+	}
+	// 4.根据配置决定是否持久化
+	if wb.options.SyncWrite && wb.db.aciveFile != nil {
+		if err := wb.db.aciveFile.Sync(); err != nil {
+			return err
+		}
+	}
+	// 5.更新内存索引
+	for _, record := range wb.pendingWrites {
+		pos := postions[string(record.Key)]
+		if record.Type == data.LogRecordDeleted {
+			wb.db.index.Delete(record.Key)
+		} else {
+			wb.db.index.Put(record.Key, pos)
+		}
 	}
 	return nil
 }
