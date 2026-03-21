@@ -3,6 +3,8 @@ package index
 import (
 	// . "bitcask-my/common"
 	"bitcask-my/data"
+	"bytes"
+	"sort"
 
 	"sync"
 
@@ -52,6 +54,14 @@ func (bt *BTree) Delete(key []byte) error {
 	return nil
 }
 
+// Iterator 获取索引迭代器，支持正向和反向迭代。
+func (bt *BTree) Iterator(reverse bool) IndexIterator {
+	bt.lock.RLock()
+	defer bt.lock.RUnlock()
+
+	return newBTreeIterator(bt.tree, reverse)
+}
+
 // BTreeIterator 基于 BTree 实现的索引迭代器。
 type BTreeIterator struct {
 	currIndex int     // 当前索引位置
@@ -59,33 +69,77 @@ type BTreeIterator struct {
 	item      []*Item // key + 位置索引信息
 }
 
+// newBTreeIterator 创建一个新的 BTreeIterator 实例。
+func newBTreeIterator(tree *btree.BTree, reverse bool) *BTreeIterator {
+	var idx int
+	values := make([]*Item, tree.Len())
+	if reverse {
+		tree.Descend(func(i btree.Item) bool {
+			values[idx] = i.(*Item)
+			idx++
+			return true
+		})
+	} else {
+		tree.Ascend(func(i btree.Item) bool {
+			values[idx] = i.(*Item)
+			idx++
+			return true
+		})
+	}
+	return &BTreeIterator{
+		currIndex: 0,
+		reverse:   reverse,
+		item:      values,
+	}
+}
+
 // Rewind 将迭代器重置到起始位置。
 func (bti *BTreeIterator) Rewind() {
+	bti.currIndex = 0
 }
 
 // Seek 将迭代器移动到指定 key 的位置。
 func (bti *BTreeIterator) Seek(key []byte) {
+	if bti.reverse {
+		bti.currIndex = sort.Search(len(bti.item), func(i int) bool {
+			return bytes.Compare(bti.item[i].key, key) <= 0
+		})
+	} else {
+		bti.currIndex = sort.Search(len(bti.item), func(i int) bool {
+			return bytes.Compare(bti.item[i].key, key) >= 0
+		})
+	}
 }
 
 // Next 将迭代器移动到下一个位置。
 func (bti *BTreeIterator) Next() {
+	if bti.currIndex < len(bti.item) {
+		bti.currIndex++
+	}
 }
 
 // Vaild 检查迭代器当前是否有效。
 func (bti *BTreeIterator) Vaild() bool {
-	return false
+	return bti.currIndex < len(bti.item)
 }
 
 // Key 返回当前迭代器位置的 key。
 func (bti *BTreeIterator) Key() []byte {
+	if bti.Vaild() {
+		return bti.item[bti.currIndex].key
+	}
 	return nil
 }
 
 // Value 返回当前迭代器位置的 value。
 func (bti *BTreeIterator) Value() *data.LogRecordPos {
+	if bti.Vaild() {
+		return bti.item[bti.currIndex].pos
+	}
 	return nil
 }
 
 // Close 关闭迭代器，释放相关资源。
 func (bti *BTreeIterator) Close() {
+	bti.item = nil
 }

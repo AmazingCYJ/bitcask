@@ -16,6 +16,8 @@ type Indexer interface {
 	Get(key []byte) *data.LogRecordPos
 	// Delete 删除索引数据
 	Delete(key []byte) error
+	// Iterator 获取索引迭代器
+	Iterator(reverse bool) IndexIterator
 }
 
 func NewIndexer(idextype IndexerType) Indexer {
