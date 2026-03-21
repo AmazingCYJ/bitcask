@@ -15,7 +15,7 @@ type Indexer interface {
 	// Get 获取索引数据
 	Get(key []byte) *data.LogRecordPos
 	// Delete 删除索引数据
-	Delete(key []byte) error
+	Delete(key []byte) bool
 	// Size 返回索引中键值对的数量。
 	Size() int
 	// Iterator 获取索引迭代器

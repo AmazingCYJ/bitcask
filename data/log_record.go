@@ -34,6 +34,12 @@ type LogRecordHeader struct {
 	valueSize  uint32        // value的长度
 }
 
+// TransactionRecord 事务记录，包含一个 LogRecord 和它在数据文件中的位置（LogRecordPos）。
+type TransactionRecord struct {
+	Record *LogRecord
+	Pos    *LogRecordPos
+}
+
 // EncodeLogRecord 将 LogRecord 序列化为字节数组，并返回序列化后的字节数组和记录的总大小（包括头部和数据）。
 // +------------------+-----------------+-----------------+-----------------+-----------------+-----------------+
 // | CRC (4 bytes)    | Record Type (1 byte) | Key Size ( 5 bytes) | Value Size (5  bytes) | Key (variable)  | Value (variable) |

@@ -4,6 +4,7 @@ import (
 	. "bitcask-my/common"
 	"bitcask-my/data"
 	"bitcask-my/index"
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
@@ -62,7 +63,7 @@ func (db *DB) Put(key, value []byte) error {
 	}
 	// 创建 logRecord 并写入数据文件
 	logRecord := &data.LogRecord{
-		Key:   key,
+		Key:   logRecordKeyWithSeq(key, nonTransactionSeqNo),
 		Value: value,
 		Type:  data.LogRecordNormal,
 	}
@@ -212,6 +213,23 @@ func (db *DB) loadIndexFromDataFiles() error {
 	if len(db.fileIds) == 0 {
 		return nil
 	}
+	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) error {
+		var ok bool
+		if typ == data.LogRecordDeleted {
+			ok = db.index.Delete(key)
+		} else {
+			db.index.Put(key, pos)
+		}
+		if !ok {
+			panic("failed to update index at Start")
+		}
+		return nil
+	}
+	// 暂存事务记录，等事务完成后再更新索引
+	TransactionRecords := make(map[uint64][]*data.TransactionRecord)
+
+	var currentSeqNo uint64 = nonTransactionSeqNo
+
 	//2.遍历所有文件Id,处理文件中的记录
 	for i, fid := range db.fileIds {
 		var fileId = uint32(fid)
@@ -240,12 +258,30 @@ func (db *DB) loadIndexFromDataFiles() error {
 				Fid:    fileId,
 				Offset: offset,
 			}
-			if logRecord.Type == data.LogRecordDeleted {
-				db.index.Delete(logRecord.Key)
+			//2.1.2 解析key ,拿到实物序列号
+			realKey, seqNo := parseLogRecordKey(logRecord.Key)
+			if seqNo == nonTransactionSeqNo {
+				// 如果是非事务记录，直接更新索引
+				updateIndex(realKey, logRecord.Type, pos)
 			} else {
-				db.index.Put(logRecord.Key, pos)
+				// 事务完成,对应的seqno 的数据可以更新到内存索引中
+				if logRecord.Type == data.LogRecordTxnFinished {
+					for _, record := range TransactionRecords[seqNo] {
+						updateIndex(record.Record.Key, record.Record.Type, record.Pos)
+					}
+					delete(TransactionRecords, seqNo)
+				} else {
+					// 否则暂存事务记录
+					TransactionRecords[seqNo] = append(TransactionRecords[seqNo], &data.TransactionRecord{
+						Record: logRecord,
+						Pos:    pos,
+					})
+				}
 			}
-			//2.1.2更新偏移量，指向下一个记录的位置
+			// 更新当前最大的事务序列号，确保后续的事务记录能够正确解析
+			if seqNo > currentSeqNo {
+				currentSeqNo = seqNo
+			}
 			offset += size
 		}
 		//2.2 如果是活跃文件，更新写入偏移
@@ -253,6 +289,8 @@ func (db *DB) loadIndexFromDataFiles() error {
 			db.aciveFile.WriteOff = offset
 		}
 	}
+	//更新事务序列号
+	db.seqNo = currentSeqNo
 	return nil
 }
 
@@ -322,15 +360,15 @@ func (db *DB) Delete(key []byte) error {
 	}
 	//3.创建删除记录并写入数据文件
 	logRecord := &data.LogRecord{
-		Key:  key,
+		Key:  logRecordKeyWithSeq(key, nonTransactionSeqNo),
 		Type: data.LogRecordDeleted,
 	}
 	if _, err := db.appendLogRecordWithLock(logRecord); err != nil {
 		return err
 	}
 	//4.更新内存索引
-	if err := db.index.Delete(key); err != nil {
-		return err
+	if ok := db.index.Delete(key); !ok {
+		return ErrIndexUpdateFailed
 	}
 	return nil
 }
@@ -344,4 +382,11 @@ func checkOptions(options Options) error {
 		return errors.New("data file size must be greater than zero")
 	}
 	return nil
+}
+
+// 解析 logRecord 的 key，提取出实际的 key 和事务序列号
+func parseLogRecordKey(key []byte) ([]byte, uint64) {
+	seqNo, n := binary.Uvarint(key)
+	realKey := key[n:]
+	return realKey, seqNo
 }

@@ -46,12 +46,12 @@ func (bt *BTree) Get(key []byte) *data.LogRecordPos {
 }
 
 // Delete 删除 key 对应的位置。
-func (bt *BTree) Delete(key []byte) error {
+func (bt *BTree) Delete(key []byte) bool {
 	bt.lock.Lock()
 	defer bt.lock.Unlock()
 
 	bt.tree.Delete(&Item{key: key})
-	return nil
+	return true
 }
 
 // / Size 返回索引中键值对的数量。

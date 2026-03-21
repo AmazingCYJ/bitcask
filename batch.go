@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 )
 
+const nonTransactionSeqNo uint64 = 0
+
 var txnFinKey = []byte("txn_fin")
 
 // WriteBatch 原子批量写数据 保证原子性
