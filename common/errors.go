@@ -10,4 +10,5 @@ var (
 	ErrDataDirectoryCorrupted = errors.New("data directory is corrupted")
 	ErrInvlidCRC              = errors.New("invalid CRC, data may be corrupted")
 	ErrBatchTooLarge          = errors.New("batch size exceeds the maximum limit")
+	ErrMergeIsProgress        = errors.New("other file is merging,try again later")
 )

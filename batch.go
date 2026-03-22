@@ -109,8 +109,8 @@ func (wb *WriteBatch) Commit() error {
 		return err
 	}
 	// 4.根据配置决定是否持久化
-	if wb.options.SyncWrite && wb.db.aciveFile != nil {
-		if err := wb.db.aciveFile.Sync(); err != nil {
+	if wb.options.SyncWrite && wb.db.activeFile != nil {
+		if err := wb.db.activeFile.Sync(); err != nil {
 			return err
 		}
 	}

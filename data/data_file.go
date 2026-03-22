@@ -23,12 +23,44 @@ const maxLogRecordHeardSize = 4 + 1 + binary.MaxVarintLen32 + binary.MaxVarintLe
 func OpenDataFile(dirPath string, fileID uint32) (*DataFile, error) {
 	//1.构建数据文件路径
 	filePath := filepath.Join(dirPath, fmt.Sprintf("%09d", fileID)+DataFileSuffix)
-	//2.创建IOManager实例
+	//2.创建或打开数据文件
+	return newDatafile(filePath, fileID)
+}
+
+// OpenHintFile 打开Hint文件
+func OpenHintFile(dirPath string) (*DataFile, error) {
+	filePath := filepath.Join(dirPath, HintFileName)
+	return newDatafile(filePath, 0)
+}
+
+// OpenMergeDataFile 打开Merge完成标记文件
+func OpenMergeDataFile(dirPath string) (*DataFile, error) {
+	filePath := filepath.Join(dirPath, MergeFinishedFileName)
+	return newDatafile(filePath, 0)
+}
+func GetDataFileName(dirPath string, fileID uint32) string {
+	return filepath.Join(dirPath, fmt.Sprintf("%09d", fileID)+DataFileSuffix)
+}
+
+// WriteHintRecord 将 Hint 记录写入 Hint 文件
+func (df *DataFile) WriteHintRecord(key []byte, pos *LogRecordPos) error {
+	// Hint记录格式: Key Size (4 bytes) | Key (variable) | FileID (4 bytes) | Offset (8 bytes)
+	record := &LogRecord{
+		Key:   key,
+		Value: EncodeLogRecordPos(pos),
+		Type:  LogRecordNormal,
+	}
+	encRecord, _ := EncodeLogRecord(record)
+	return df.Write(encRecord)
+}
+
+func newDatafile(filePath string, fileID uint32) (*DataFile, error) {
+	//1.创建IOManager实例
 	ioManager, err := fio.NewIOManager(filePath)
 	if err != nil {
 		return nil, err
 	}
-	//3.创建DataFile实例
+	//2.创建DataFile实例
 	return &DataFile{
 		FileID:    fileID,
 		WriteOff:  0,
@@ -43,8 +75,8 @@ func (df *DataFile) Sync() error {
 func (df *DataFile) Close() error {
 	return df.IoManager.Close()
 }
-func (df *DataFile) WriteAt(p []byte, off int64) error {
-	n, err := df.IoManager.WriteAt(p, off)
+func (df *DataFile) Write(p []byte) error {
+	n, err := df.IoManager.Write(p)
 	if err != nil {
 		return err
 	}

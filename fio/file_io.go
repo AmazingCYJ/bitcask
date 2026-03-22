@@ -22,8 +22,8 @@ func (f *FileIO) ReadAt(p []byte, off int64) (n int, err error) {
 	return f.fd.ReadAt(p, off)
 }
 
-func (f *FileIO) WriteAt(p []byte, off int64) (n int, err error) {
-	return f.fd.WriteAt(p, off)
+func (f *FileIO) Write(p []byte) (n int, err error) {
+	return f.fd.Write(p)
 }
 
 func (f *FileIO) Sync() error {

@@ -1,6 +1,7 @@
 package bitcaskmy
 
 import (
+	"bitcask-my/common"
 	. "bitcask-my/common"
 	"bitcask-my/data"
 	"bitcask-my/index"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,13 +17,14 @@ import (
 )
 
 type DB struct {
-	options   Options
-	mu        *sync.RWMutex
-	fileIds   []int                     //数据文件ID列表,只能在加载索引时使用
-	aciveFile *data.DataFile            //活跃文件
-	oldfiles  map[uint32]*data.DataFile //旧文件
-	index     index.Indexer             //内存索引
-	seqNo     uint64                    //事务的序列号 用于实现事务的原子性和一致性
+	options    Options
+	mu         *sync.RWMutex
+	fileIds    []int                     //数据文件ID列表,只能在加载索引时使用
+	activeFile *data.DataFile            //活跃文件
+	oldfiles   map[uint32]*data.DataFile //旧文件
+	index      index.Indexer             //内存索引
+	seqNo      uint64                    //事务的序列号 用于实现事务的原子性和一致性
+	isMerging  bool                      //是否正在进行合并操作
 }
 
 // Open 打开或创建一个 Bitcask 数据库实例，加载数据文件并构建内存索引。
@@ -44,6 +47,14 @@ func Open(options Options) (*DB, error) {
 		oldfiles: make(map[uint32]*data.DataFile),
 		index:    index.NewIndexer(BTreeIndex),
 	}
+	// 3.1加载数merge据目录
+	if err := db.loadMegreFiles(); err != nil {
+		return nil, err
+	}
+	// 从hint 文件加载索引
+	if err := db.loadIndexFromHintFile(); err != nil {
+		return nil, err
+	}
 	//4.加载数据文件
 	if err := db.loadDataFiles(); err != nil {
 		return nil, err
@@ -53,6 +64,34 @@ func Open(options Options) (*DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// Close 关闭数据库实例，释放资源。
+func (db *DB) Close() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if err := db.activeFile.Close(); err != nil {
+		return err
+	}
+	for _, file := range db.oldfiles {
+		if err := file.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Sync 将内存中的数据刷新到磁盘，确保数据持久化。
+func (db *DB) Sync() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.activeFile.Sync()
 }
 
 // 写入 key/value 数据 ,key 不能为空
@@ -117,8 +156,8 @@ func (db *DB) getValueByPos(logRecordPos *data.LogRecordPos) ([]byte, error) {
 	}
 	//2.跟剧文件ID找到对应的数据文件
 	var dataFile *data.DataFile
-	if db.aciveFile.FileID == logRecordPos.Fid {
-		dataFile = db.aciveFile
+	if db.activeFile.FileID == logRecordPos.Fid {
+		dataFile = db.activeFile
 	} else {
 		dataFile = db.oldfiles[logRecordPos.Fid]
 	}
@@ -141,7 +180,7 @@ func (db *DB) getValueByPos(logRecordPos *data.LogRecordPos) ([]byte, error) {
 // 追加写入数据记录到数据文件，并返回记录在文件中的位置（LogRecordPos）
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
 	//判断活跃文件是否存在
-	if db.aciveFile == nil {
+	if db.activeFile == nil {
 		if err := db.setActiveDataFile(); err != nil {
 			return nil, err
 		}
@@ -151,33 +190,33 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	//1.写入数据文件
 	//1.1判断是否超出文件
 	//如果超出则新文件变旧文件 关闭活跃文件 并打开新文件
-	if db.aciveFile.WriteOff+size > db.options.DataFileSize {
+	if db.activeFile.WriteOff+size > db.options.DataFileSize {
 		//将活跃文件持久化
-		if err := db.aciveFile.Sync(); err != nil {
+		if err := db.activeFile.Sync(); err != nil {
 			return nil, err
 		}
 
-		db.oldfiles[db.aciveFile.FileID] = db.aciveFile
+		db.oldfiles[db.activeFile.FileID] = db.activeFile
 		//打开新文件
 		if err := db.setActiveDataFile(); err != nil {
 			return nil, err
 		}
 	}
 	//writeOff 是当前文件的写入偏移，记录了新数据在文件中的位置
-	writeOff := db.aciveFile.WriteOff
+	writeOff := db.activeFile.WriteOff
 
 	//写入数据文件
-	if err := db.aciveFile.WriteAt(encodedStr, writeOff); err != nil {
+	if err := db.activeFile.Write(encodedStr); err != nil {
 		return nil, err
 	}
 	// 如果配置了 SyncWrites，则在每次写入后立即将数据刷新到磁盘
 	if db.options.SyncWrites {
-		if err := db.aciveFile.Sync(); err != nil {
+		if err := db.activeFile.Sync(); err != nil {
 			return nil, err
 		}
 	}
 	pos := &data.LogRecordPos{
-		Fid:    db.aciveFile.FileID,
+		Fid:    db.activeFile.FileID,
 		Offset: writeOff,
 	}
 	return pos, nil
@@ -192,17 +231,17 @@ func (db *DB) appendLogRecordWithLock(logRecord *data.LogRecord) (*data.LogRecor
 // 设置当前活跃文件
 // 共享锁保护，确保并发安全
 func (db *DB) setActiveDataFile() error {
-	//创建新的活跃文件，并将其设置为 db.aciveFile
+	//创建新的活跃文件，并将其设置为 db.activeFile
 	var initialFileId uint32 = 0
-	if db.aciveFile != nil {
-		initialFileId = db.aciveFile.FileID + 1
+	if db.activeFile != nil {
+		initialFileId = db.activeFile.FileID + 1
 	}
 	//打开新的数据文件
 	datafile, err := data.OpenDataFile(db.options.DirPath, initialFileId)
 	if err != nil {
 		return err
 	}
-	db.aciveFile = datafile
+	db.activeFile = datafile
 	return nil
 }
 
@@ -213,12 +252,24 @@ func (db *DB) loadIndexFromDataFiles() error {
 	if len(db.fileIds) == 0 {
 		return nil
 	}
+	// 查看是否发生过merge
+	hasMerge, nonMergeFileId := false, uint32(0)
+	mergeFinFileName := filepath.Join(db.options.DirPath, common.MergeFinishedFileName)
+	if _, err := os.Stat(mergeFinFileName); err == nil {
+		fid, err := db.getNonMergeFileId(db.options.DirPath)
+		if err != nil {
+			return err
+		}
+		hasMerge = true
+		nonMergeFileId = fid
+	}
+
 	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) error {
 		var ok bool
 		if typ == data.LogRecordDeleted {
 			ok = db.index.Delete(key)
 		} else {
-			db.index.Put(key, pos)
+			ok = db.index.Put(key, pos)
 		}
 		if !ok {
 			panic("failed to update index at Start")
@@ -233,9 +284,12 @@ func (db *DB) loadIndexFromDataFiles() error {
 	//2.遍历所有文件Id,处理文件中的记录
 	for i, fid := range db.fileIds {
 		var fileId = uint32(fid)
+		if hasMerge && fileId < nonMergeFileId {
+			continue
+		}
 		var dataFile *data.DataFile
-		if db.aciveFile.FileID == fileId {
-			dataFile = db.aciveFile
+		if db.activeFile.FileID == fileId {
+			dataFile = db.activeFile
 		} else {
 			dataFile = db.oldfiles[fileId]
 		}
@@ -286,7 +340,7 @@ func (db *DB) loadIndexFromDataFiles() error {
 		}
 		//2.2 如果是活跃文件，更新写入偏移
 		if i == len(db.fileIds)-1 {
-			db.aciveFile.WriteOff = offset
+			db.activeFile.WriteOff = offset
 		}
 	}
 	//更新事务序列号
@@ -327,7 +381,7 @@ func (db *DB) loadDataFiles() error {
 		}
 		//4.1 如果是最后一个文件，则设置为活跃文件，否则放入旧文件集合
 		if i == len(fileIds)-1 {
-			db.aciveFile = dataFile
+			db.activeFile = dataFile
 		} else {
 			db.oldfiles[uint32(fileId)] = dataFile
 		}

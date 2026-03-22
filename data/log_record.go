@@ -100,3 +100,24 @@ func getLogRecordCRC(logRecord *LogRecord, header []byte) uint32 {
 	crc = crc32.Update(crc, crc32.IEEETable, logRecord.Value)
 	return crc
 }
+
+// EncodeLogRecordPos 对位置索引进行编码
+func EncodeLogRecordPos(pos *LogRecordPos) []byte {
+	buf := make([]byte, binary.MaxVarintLen32+binary.MaxVarintLen64) // 4 bytes for Fid and 8 bytes for Offset
+	var index = 0
+	index += binary.PutVarint(buf[index:], int64(pos.Fid))
+	index += binary.PutVarint(buf[index:], pos.Offset)
+	return buf[:index]
+}
+
+// DecodeLogRecordPos 对位置索引进行解码
+func DecodeLogRecordPos(buf []byte) *LogRecordPos {
+	var index = 0
+	fileId, n := binary.Varint(buf[index:])
+	index += n
+	offset, n := binary.Varint(buf[index:])
+	return &LogRecordPos{
+		Fid:    uint32(fileId),
+		Offset: offset,
+	}
+}

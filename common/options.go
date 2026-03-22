@@ -29,7 +29,9 @@ const (
 )
 
 const (
-	DataFileSuffix = ".data" // 数据文件后缀
+	DataFileSuffix        = ".data"          // 数据文件后缀
+	HintFileName          = "hin-index"      // Hint 文件名
+	MergeFinishedFileName = "merge-finished" // Merge 完成标识文件名
 )
 
 var DefaultOptions = Options{
