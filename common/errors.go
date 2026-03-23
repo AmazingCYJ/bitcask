@@ -12,4 +12,5 @@ var (
 	ErrBatchTooLarge          = errors.New("batch size exceeds the maximum limit")
 	ErrMergeIsProgress        = errors.New("other file is merging,try again later")
 	ErrDataBaseIsUsing        = errors.New("the database is using by other process")
+	ErrMMapWriteNotSupported  = errors.New("mmap does not support write")
 )
