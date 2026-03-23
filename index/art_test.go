@@ -7,9 +7,9 @@ import (
 
 func putARTTestItem(t *testing.T, art *AdaptiveRadixTree, key string, fid uint32, offset int64) {
 	t.Helper()
-	ok := art.Put([]byte(key), &data.LogRecordPos{Fid: fid, Offset: offset})
-	if !ok {
-		t.Fatalf("Put(%q) = false, want true", key)
+	oldPos := art.Put([]byte(key), &data.LogRecordPos{Fid: fid, Offset: offset})
+	if oldPos != nil {
+		t.Fatalf("Put(%q) oldPos = %v, want nil", key, oldPos)
 	}
 }
 
@@ -34,7 +34,10 @@ func TestAdaptiveRadixTreeCRUDAndSize(t *testing.T) {
 	}
 
 	// 覆盖写入同一个 key，不应增长 Size。
-	putARTTestItem(t, art, "b", 22, 220)
+	oldPos := art.Put([]byte("b"), &data.LogRecordPos{Fid: 22, Offset: 220})
+	if oldPos == nil || oldPos.Fid != 2 || oldPos.Offset != 20 {
+		t.Fatalf("Put(b) oldPos = %v, want fid 2 offset 20", oldPos)
+	}
 	if art.Size() != 3 {
 		t.Fatalf("Size() after overwrite = %d, want 3", art.Size())
 	}
@@ -43,11 +46,19 @@ func TestAdaptiveRadixTreeCRUDAndSize(t *testing.T) {
 		t.Fatalf("Get(b) after overwrite = %v, want fid 22 offset 220", pos)
 	}
 
-	if !art.Delete([]byte("b")) {
-		t.Fatalf("Delete(b) = false, want true")
+	oldPos, ok := art.Delete([]byte("b"))
+	if !ok {
+		t.Fatalf("Delete(b) ok = false, want true")
 	}
-	if art.Delete([]byte("b")) {
-		t.Fatalf("Delete(b) second time = true, want false")
+	if oldPos == nil || oldPos.Fid != 22 || oldPos.Offset != 220 {
+		t.Fatalf("Delete(b) oldPos = %v, want fid 22 offset 220", oldPos)
+	}
+	oldPos, ok = art.Delete([]byte("b"))
+	if ok {
+		t.Fatalf("Delete(b) second time ok = true, want false")
+	}
+	if oldPos != nil {
+		t.Fatalf("Delete(b) second time oldPos = %v, want nil", oldPos)
 	}
 	if art.Get([]byte("b")) != nil {
 		t.Fatalf("Get(b) after delete = non-nil, want nil")

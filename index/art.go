@@ -25,14 +25,20 @@ func NewARTree() *AdaptiveRadixTree {
 	}
 }
 
-// Put 写入或更新 key 对应的位置索引。
-// 返回 true 表示写入流程执行成功。
-func (art *AdaptiveRadixTree) Put(key []byte, pos *data.LogRecordPos) bool {
+// Put 写入或更新 key 对应的位置索引，返回旧值（若不存在则为 nil）。
+func (art *AdaptiveRadixTree) Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos {
 	art.lock.Lock()
 	defer art.lock.Unlock()
 
-	art.tree.Insert(goart.Key(key), pos)
-	return true
+	oldValue, updated := art.tree.Insert(goart.Key(key), pos)
+	if !updated {
+		return nil
+	}
+	oldPos, ok := oldValue.(*data.LogRecordPos)
+	if !ok {
+		return nil
+	}
+	return oldPos
 }
 
 // Get 根据 key 查询位置索引。
@@ -52,14 +58,20 @@ func (art *AdaptiveRadixTree) Get(key []byte) *data.LogRecordPos {
 	return pos
 }
 
-// Delete 删除指定 key 的索引。
-// 返回 true 表示确实删除到一条记录；false 表示 key 不存在。
-func (art *AdaptiveRadixTree) Delete(key []byte) bool {
+// Delete 删除指定 key 的索引，返回旧值以及是否删除成功。
+func (art *AdaptiveRadixTree) Delete(key []byte) (*data.LogRecordPos, bool) {
 	art.lock.Lock()
 	defer art.lock.Unlock()
 
-	_, deleted := art.tree.Delete(goart.Key(key))
-	return deleted
+	oldValue, deleted := art.tree.Delete(goart.Key(key))
+	if !deleted {
+		return nil, false
+	}
+	oldPos, ok := oldValue.(*data.LogRecordPos)
+	if !ok {
+		return nil, true
+	}
+	return oldPos, true
 }
 
 // Size 返回当前索引中的键值对数量。

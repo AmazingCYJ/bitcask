@@ -37,6 +37,7 @@ type DB struct {
 	isInitial      bool                      //是否是初始加载
 	fileLock       *flock.Flock              //文件锁，确保同一时间只有一个进程访问数据库
 	bytesWrite     uint                      //记录自上次同步以来写入的字节数，用于控制何时执行同步
+	reclaimSize    int64                     //已废弃数据的总大小，用于触发合并操作
 }
 
 // Open 打开或创建一个 Bitcask 数据库实例，加载数据文件并构建内存索引。
@@ -190,9 +191,9 @@ func (db *DB) Put(key, value []byte) error {
 	if err != nil {
 		return err
 	}
-	//更新内存索引
-	if ok := db.index.Put(key, pos); !ok {
-		return ErrIndexUpdateFailed
+	if oldPos := db.index.Put(key, pos); oldPos != nil {
+		//如果 key 已经存在，说明之前的记录已经废弃了，需要更新废弃数据的大小
+		db.reclaimSize += int64(oldPos.Size)
 	}
 	return nil
 }
@@ -354,14 +355,15 @@ func (db *DB) loadIndexFromDataFiles() error {
 	}
 
 	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) error {
-		var ok bool
+		var oldPos *data.LogRecordPos
 		if typ == data.LogRecordDeleted {
-			ok = db.index.Delete(key)
+			oldPos, _ = db.index.Delete(key)
+			db.reclaimSize += int64(pos.Size)
 		} else {
-			ok = db.index.Put(key, pos)
+			oldPos = db.index.Put(key, pos)
 		}
-		if !ok {
-			panic("failed to update index at Start")
+		if oldPos != nil {
+			db.reclaimSize += int64(oldPos.Size)
 		}
 		return nil
 	}
@@ -400,6 +402,7 @@ func (db *DB) loadIndexFromDataFiles() error {
 			pos := &data.LogRecordPos{
 				Fid:    fileId,
 				Offset: offset,
+				Size:   uint32(size),
 			}
 			//2.1.2 解析key ,拿到实物序列号
 			realKey, seqNo := parseLogRecordKey(logRecord.Key)
@@ -510,13 +513,20 @@ func (db *DB) Delete(key []byte) error {
 		Key:  logRecordKeyWithSeq(key, nonTransactionSeqNo),
 		Type: data.LogRecordDeleted,
 	}
-	if _, err := db.appendLogRecordWithLock(logRecord); err != nil {
+	pos, err := db.appendLogRecordWithLock(logRecord)
+	if err != nil {
 		return err
 	}
+	db.reclaimSize += int64(pos.Size)
 	//4.更新内存索引
-	if ok := db.index.Delete(key); !ok {
-		return ErrIndexUpdateFailed
+	oldPos, ok := db.index.Delete(key)
+	if ok {
+		db.reclaimSize += int64(oldPos.Size)
 	}
+	if oldPos != nil {
+		db.reclaimSize += int64(oldPos.Size)
+	}
+
 	return nil
 }
 

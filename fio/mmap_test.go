@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func createMMapTestFile(t *testing.T, content []byte) string {
@@ -90,9 +91,177 @@ func TestMMapWriteSyncAndClose(t *testing.T) {
 	}
 }
 
-func TestNewMMapIOManagerFileNotFound(t *testing.T) {
-	_, err := NewMMapIOManager(filepath.Join(t.TempDir(), "not-exist.data"))
-	if err == nil {
-		t.Fatalf("NewMMapIOManager(not-exist) error = nil, want non-nil")
+func TestNewMMapIOManagerCreateFileIfNotFound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-exist.data")
+	m, err := NewMMapIOManager(path)
+	if err != nil {
+		t.Fatalf("NewMMapIOManager(not-exist) error = %v", err)
 	}
+	t.Cleanup(func() { _ = m.Close() })
+
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("stat created file error = %v", statErr)
+	}
+
+	sz, err := m.Size()
+	if err != nil {
+		t.Fatalf("Size() error = %v", err)
+	}
+	if sz != 0 {
+		t.Fatalf("Size() = %d, want 0 for new file", sz)
+	}
+}
+
+func createMMapPerfFile(t testing.TB, size int64) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mmap-perf.data")
+
+	fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, DataFilePerm)
+	if err != nil {
+		t.Fatalf("open perf file error = %v", err)
+	}
+	defer func() { _ = fd.Close() }()
+
+	buf := make([]byte, 1024*1024)
+	for i := range buf {
+		buf[i] = byte(i % 251)
+	}
+
+	remain := size
+	for remain > 0 {
+		toWrite := int64(len(buf))
+		if remain < toWrite {
+			toWrite = remain
+		}
+		n, wErr := fd.Write(buf[:toWrite])
+		if wErr != nil {
+			t.Fatalf("write perf file error = %v", wErr)
+		}
+		if int64(n) != toWrite {
+			t.Fatalf("write perf file n = %d, want %d", n, toWrite)
+		}
+		remain -= toWrite
+	}
+
+	if err := fd.Sync(); err != nil {
+		t.Fatalf("sync perf file error = %v", err)
+	}
+
+	return path
+}
+
+func measureReadAtCost(t testing.TB, mgr IOManager, fileSize int64, readSize, readCount int) time.Duration {
+	t.Helper()
+	buf := make([]byte, readSize)
+	maxOff := int(fileSize) - readSize
+
+	start := time.Now()
+	for i := 0; i < readCount; i++ {
+		off := int64((i * 104729) % maxOff)
+		n, err := mgr.ReadAt(buf, off)
+		if err != nil && !errors.Is(err, io.EOF) {
+			t.Fatalf("ReadAt error = %v", err)
+		}
+		if n != readSize {
+			t.Fatalf("ReadAt n = %d, want %d", n, readSize)
+		}
+	}
+	return time.Since(start)
+}
+
+func TestMMapReadPerformance(t *testing.T) {
+	if os.Getenv("BITCASK_RUN_PERF_TEST") != "1" {
+		t.Skip("set BITCASK_RUN_PERF_TEST=1 to run perf comparison")
+	}
+
+	const (
+		fileSize  = 64 * 1024 * 1024
+		readSize  = 4 * 1024
+		readCount = 200000
+	)
+
+	path := createMMapPerfFile(t, fileSize)
+
+	stdMgr, err := NewIOManager(path, StandardFIO)
+	if err != nil {
+		t.Fatalf("NewIOManager(StandardFIO) error = %v", err)
+	}
+	defer func() { _ = stdMgr.Close() }()
+
+	mmapMgr, err := NewIOManager(path, MemoryMap)
+	if err != nil {
+		t.Fatalf("NewIOManager(MemoryMap) error = %v", err)
+	}
+	defer func() { _ = mmapMgr.Close() }()
+
+	stdCost := measureReadAtCost(t, stdMgr, fileSize, readSize, readCount)
+	mmapCost := measureReadAtCost(t, mmapMgr, fileSize, readSize, readCount)
+
+	if mmapCost == 0 {
+		t.Fatalf("mmap duration = 0, invalid measurement")
+	}
+
+	speedup := float64(stdCost) / float64(mmapCost)
+	t.Logf("ReadAt perf: fileIO=%v mmap=%v speedup=%.2fx", stdCost, mmapCost, speedup)
+
+	// 保持断言宽松，避免不同机器和负载导致偶发误报。
+	if mmapCost > stdCost*2 {
+		t.Fatalf("mmap too slow: fileIO=%v mmap=%v", stdCost, mmapCost)
+	}
+}
+
+func BenchmarkReadAtFileIOVsMMap(b *testing.B) {
+	const (
+		fileSize = 64 * 1024 * 1024
+		readSize = 4 * 1024
+	)
+
+	path := createMMapPerfFile(b, fileSize)
+
+	stdMgr, err := NewIOManager(path, StandardFIO)
+	if err != nil {
+		b.Fatalf("NewIOManager(StandardFIO) error = %v", err)
+	}
+	defer func() { _ = stdMgr.Close() }()
+
+	mmapMgr, err := NewIOManager(path, MemoryMap)
+	if err != nil {
+		b.Fatalf("NewIOManager(MemoryMap) error = %v", err)
+	}
+	defer func() { _ = mmapMgr.Close() }()
+
+	b.Run("FileIO", func(b *testing.B) {
+		buf := make([]byte, readSize)
+		maxOff := fileSize - readSize
+		b.SetBytes(readSize)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			off := int64((i * 104729) % maxOff)
+			n, err := stdMgr.ReadAt(buf, off)
+			if err != nil && !errors.Is(err, io.EOF) {
+				b.Fatalf("ReadAt error = %v", err)
+			}
+			if n != readSize {
+				b.Fatalf("ReadAt n = %d, want %d", n, readSize)
+			}
+		}
+	})
+
+	b.Run("MMap", func(b *testing.B) {
+		buf := make([]byte, readSize)
+		maxOff := fileSize - readSize
+		b.SetBytes(readSize)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			off := int64((i * 104729) % maxOff)
+			n, err := mmapMgr.ReadAt(buf, off)
+			if err != nil && !errors.Is(err, io.EOF) {
+				b.Fatalf("ReadAt error = %v", err)
+			}
+			if n != readSize {
+				b.Fatalf("ReadAt n = %d, want %d", n, readSize)
+			}
+		}
+	})
 }

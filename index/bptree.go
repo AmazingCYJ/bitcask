@@ -45,8 +45,9 @@ func NewBPlusTree(dirPath string, syncWrites bool) *BPlusTree {
 	return bpt
 }
 
-// Put 写入或更新 key 对应的位置索引。
-func (bpt *BPlusTree) Put(key []byte, pos *data.LogRecordPos) bool {
+// Put 写入或更新 key 对应的位置索引，返回旧值（若不存在则为 nil）。
+func (bpt *BPlusTree) Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos {
+	var oldPos *data.LogRecordPos
 	err := bpt.tree.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bpt.bkt)
 		if bucket == nil {
@@ -56,9 +57,17 @@ func (bpt *BPlusTree) Put(key []byte, pos *data.LogRecordPos) bool {
 				return err
 			}
 		}
+		if oldValue := bucket.Get(key); len(oldValue) != 0 {
+			buf := make([]byte, len(oldValue))
+			copy(buf, oldValue)
+			oldPos = data.DecodeLogRecordPos(buf)
+		}
 		return bucket.Put(key, data.EncodeLogRecordPos(pos))
 	})
-	return err == nil
+	if err != nil {
+		return nil
+	}
+	return oldPos
 }
 
 // Get 根据 key 查询位置索引。
@@ -81,24 +90,34 @@ func (bpt *BPlusTree) Get(key []byte) *data.LogRecordPos {
 	return result
 }
 
-// Delete 删除指定 key 的索引。
-func (bpt *BPlusTree) Delete(key []byte) bool {
-	var deleted bool
+// Delete 删除指定 key 的索引，返回旧值以及是否删除成功。
+func (bpt *BPlusTree) Delete(key []byte) (*data.LogRecordPos, bool) {
+	var (
+		deleted bool
+		oldPos  *data.LogRecordPos
+	)
 	err := bpt.tree.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bpt.bkt)
 		if bucket == nil {
 			return nil
 		}
-		if bucket.Get(key) == nil {
+		oldValue := bucket.Get(key)
+		if oldValue == nil {
 			return nil
 		}
+		buf := make([]byte, len(oldValue))
+		copy(buf, oldValue)
+		oldPos = data.DecodeLogRecordPos(buf)
 		deleted = true
 		return bucket.Delete(key)
 	})
 	if err != nil {
-		return false
+		return nil, false
 	}
-	return deleted
+	if !deleted {
+		return nil, false
+	}
+	return oldPos, true
 }
 
 // Size 返回索引中键值对的数量。

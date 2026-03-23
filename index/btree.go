@@ -25,12 +25,15 @@ func NewBTree() *BTree {
 }
 
 // Put 写入或更新 key 对应的位置。
-func (bt *BTree) Put(key []byte, pos *data.LogRecordPos) bool {
+func (bt *BTree) Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos {
 	bt.lock.Lock()
 	defer bt.lock.Unlock()
 
-	bt.tree.ReplaceOrInsert(&Item{key: key, pos: pos})
-	return true
+	oldItem := bt.tree.ReplaceOrInsert(&Item{key: key, pos: pos})
+	if oldItem == nil {
+		return nil
+	}
+	return oldItem.(*Item).pos
 }
 
 // Get 查询 key 对应的位置，不存在时返回 ErrKeyNotFound。
@@ -46,12 +49,15 @@ func (bt *BTree) Get(key []byte) *data.LogRecordPos {
 }
 
 // Delete 删除 key 对应的位置。
-func (bt *BTree) Delete(key []byte) bool {
+func (bt *BTree) Delete(key []byte) (*data.LogRecordPos, bool) {
 	bt.lock.Lock()
 	defer bt.lock.Unlock()
 
-	bt.tree.Delete(&Item{key: key})
-	return true
+	oldItem := bt.tree.Delete(&Item{key: key})
+	if oldItem == nil {
+		return nil, false
+	}
+	return oldItem.(*Item).pos, true
 }
 
 // / Size 返回索引中键值对的数量。

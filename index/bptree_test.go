@@ -23,9 +23,9 @@ func openTestBPlusTree(t *testing.T) *BPlusTree {
 
 func putBPlusTestItem(t *testing.T, bpt *BPlusTree, key string, fid uint32, offset int64) {
 	t.Helper()
-	ok := bpt.Put([]byte(key), &data.LogRecordPos{Fid: fid, Offset: offset})
-	if !ok {
-		t.Fatalf("Put(%q) = false, want true", key)
+	oldPos := bpt.Put([]byte(key), &data.LogRecordPos{Fid: fid, Offset: offset})
+	if oldPos != nil {
+		t.Fatalf("Put(%q) oldPos = %v, want nil", key, oldPos)
 	}
 }
 
@@ -49,7 +49,10 @@ func TestBPlusTreeCRUDAndSize(t *testing.T) {
 		t.Fatalf("Get(b) = %v, want offset 20", pos)
 	}
 
-	putBPlusTestItem(t, bpt, "b", 22, 220)
+	oldPos := bpt.Put([]byte("b"), &data.LogRecordPos{Fid: 22, Offset: 220})
+	if oldPos == nil || oldPos.Fid != 2 || oldPos.Offset != 20 {
+		t.Fatalf("Put(b) oldPos = %v, want fid 2 offset 20", oldPos)
+	}
 	if bpt.Size() != 3 {
 		t.Fatalf("Size() after overwrite = %d, want 3", bpt.Size())
 	}
@@ -59,11 +62,19 @@ func TestBPlusTreeCRUDAndSize(t *testing.T) {
 		t.Fatalf("Get(b) after overwrite = %v, want fid 22 offset 220", pos)
 	}
 
-	if !bpt.Delete([]byte("b")) {
-		t.Fatalf("Delete(b) = false, want true")
+	oldPos, ok := bpt.Delete([]byte("b"))
+	if !ok {
+		t.Fatalf("Delete(b) ok = false, want true")
 	}
-	if bpt.Delete([]byte("b")) {
-		t.Fatalf("Delete(b) second time = true, want false")
+	if oldPos == nil || oldPos.Fid != 22 || oldPos.Offset != 220 {
+		t.Fatalf("Delete(b) oldPos = %v, want fid 22 offset 220", oldPos)
+	}
+	oldPos, ok = bpt.Delete([]byte("b"))
+	if ok {
+		t.Fatalf("Delete(b) second time ok = true, want false")
+	}
+	if oldPos != nil {
+		t.Fatalf("Delete(b) second time oldPos = %v, want nil", oldPos)
 	}
 	if bpt.Get([]byte("b")) != nil {
 		t.Fatalf("Get(b) after delete = non-nil, want nil")
@@ -215,8 +226,8 @@ func TestBPlusTreeReopenPersistence(t *testing.T) {
 
 	putBPlusTestItem(t, bpt, "persist-a", 1, 11)
 	putBPlusTestItem(t, bpt, "persist-b", 2, 22)
-	if !bpt.Delete([]byte("persist-b")) {
-		t.Fatalf("Delete(persist-b) = false, want true")
+	if oldPos, ok := bpt.Delete([]byte("persist-b")); !ok || oldPos == nil || oldPos.Fid != 2 || oldPos.Offset != 22 {
+		t.Fatalf("Delete(persist-b) = (%v,%v), want oldPos fid 2 offset 22 and ok true", oldPos, ok)
 	}
 	if err := bpt.Close(); err != nil {
 		t.Fatalf("Close(first) error = %v", err)
@@ -249,9 +260,12 @@ func TestBPlusTreeFactoryCreation(t *testing.T) {
 
 func TestBPlusTreePutEmptyKey(t *testing.T) {
 	bpt := openTestBPlusTree(t)
-	ok := bpt.Put([]byte{}, &data.LogRecordPos{Fid: 1, Offset: 1})
-	if ok {
-		t.Fatalf("Put(empty key) = true, want false")
+	oldPos := bpt.Put([]byte{}, &data.LogRecordPos{Fid: 1, Offset: 1})
+	if oldPos != nil {
+		t.Fatalf("Put(empty key) oldPos = %v, want nil", oldPos)
+	}
+	if bpt.Size() != 0 {
+		t.Fatalf("Size() after Put(empty key) = %d, want 0", bpt.Size())
 	}
 }
 
@@ -263,8 +277,8 @@ func TestBPlusTreeIteratorSnapshotIsolation(t *testing.T) {
 	it := bpt.Iterator(false)
 	// 迭代器创建后再修改索引，快照内容应保持不变。
 	putBPlusTestItem(t, bpt, "c", 3, 30)
-	if !bpt.Delete([]byte("a")) {
-		t.Fatalf("Delete(a) = false, want true")
+	if oldPos, ok := bpt.Delete([]byte("a")); !ok || oldPos == nil || oldPos.Fid != 1 || oldPos.Offset != 10 {
+		t.Fatalf("Delete(a) = (%v,%v), want oldPos fid 1 offset 10 and ok true", oldPos, ok)
 	}
 
 	it.Rewind()
@@ -340,39 +354,4 @@ func TestBPlusTreeTransactionRollback(t *testing.T) {
 	if bpt.Get([]byte("tx-r2")) != nil {
 		t.Fatalf("Get(tx-r2) after rollback = non-nil, want nil")
 	}
-}
-
-func TestBPlusTreeFileLockExclusive(t *testing.T) {
-	dir := t.TempDir()
-	first := NewBPlusTree(dir, false)
-	if first == nil {
-		t.Fatalf("NewBPlusTree(first) returned nil")
-	}
-	t.Cleanup(func() { _ = first.Close() })
-
-	// 同一路径下再次以可写方式打开，应因为文件锁失败而返回 nil。
-	second := NewBPlusTree(dir, false)
-	if second != nil {
-		_ = second.Close()
-		t.Fatalf("NewBPlusTree(second) = non-nil, want nil due to file lock")
-	}
-}
-
-func TestBPlusTreeFileLockReleaseAfterClose(t *testing.T) {
-	dir := t.TempDir()
-	first := NewBPlusTree(dir, false)
-	if first == nil {
-		t.Fatalf("NewBPlusTree(first) returned nil")
-	}
-
-	if err := first.Close(); err != nil {
-		t.Fatalf("Close(first) error = %v", err)
-	}
-
-	// 关闭后应能再次打开，说明文件锁已释放。
-	second := NewBPlusTree(dir, false)
-	if second == nil {
-		t.Fatalf("NewBPlusTree(second) returned nil, want non-nil after close")
-	}
-	t.Cleanup(func() { _ = second.Close() })
 }

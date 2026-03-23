@@ -7,9 +7,9 @@ import (
 
 func putTestItem(t *testing.T, bt *BTree, key string, fid uint32, offset int64) {
 	t.Helper()
-	ok := bt.Put([]byte(key), &data.LogRecordPos{Fid: fid, Offset: offset})
-	if !ok {
-		t.Fatalf("Put(%q) = false, want true", key)
+	oldPos := bt.Put([]byte(key), &data.LogRecordPos{Fid: fid, Offset: offset})
+	if oldPos != nil {
+		t.Fatalf("Put(%q) oldPos = %v, want nil", key, oldPos)
 	}
 }
 

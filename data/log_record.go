@@ -17,6 +17,7 @@ const (
 type LogRecordPos struct {
 	Fid    uint32 // 文件id
 	Offset int64  // 文件内偏移
+	Size   uint32 // 记录的总大小（包括头部和数据），用于合并时计算废弃数据的大小
 }
 
 // LogRecord 数据记录
@@ -103,10 +104,11 @@ func getLogRecordCRC(logRecord *LogRecord, header []byte) uint32 {
 
 // EncodeLogRecordPos 对位置索引进行编码
 func EncodeLogRecordPos(pos *LogRecordPos) []byte {
-	buf := make([]byte, binary.MaxVarintLen32+binary.MaxVarintLen64) // 4 bytes for Fid and 8 bytes for Offset
+	buf := make([]byte, binary.MaxVarintLen32*2+binary.MaxVarintLen64) // 4 bytes for Fid and 8 bytes for Offset
 	var index = 0
 	index += binary.PutVarint(buf[index:], int64(pos.Fid))
 	index += binary.PutVarint(buf[index:], pos.Offset)
+	index += binary.PutVarint(buf[index:], int64(pos.Size))
 	return buf[:index]
 }
 
@@ -116,8 +118,11 @@ func DecodeLogRecordPos(buf []byte) *LogRecordPos {
 	fileId, n := binary.Varint(buf[index:])
 	index += n
 	offset, n := binary.Varint(buf[index:])
+	index += n
+	size, _ := binary.Varint(buf[index:])
 	return &LogRecordPos{
 		Fid:    uint32(fileId),
 		Offset: offset,
+		Size:   uint32(size),
 	}
 }

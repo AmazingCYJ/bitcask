@@ -11,11 +11,11 @@ import (
 // Indexer 索引器接口
 type Indexer interface {
 	// Put 索引数据
-	Put(key []byte, pos *data.LogRecordPos) bool
+	Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos
 	// Get 获取索引数据
 	Get(key []byte) *data.LogRecordPos
 	// Delete 删除索引数据
-	Delete(key []byte) bool
+	Delete(key []byte) (*data.LogRecordPos, bool)
 	// Size 返回索引中键值对的数量。
 	Size() int
 	// Iterator 获取索引迭代器
