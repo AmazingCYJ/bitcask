@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"go.etcd.io/bbolt"
 )
@@ -26,6 +27,8 @@ type BPlusTree struct {
 func NewBPlusTree(dirPath string, syncWrites bool) *BPlusTree {
 	opts := bbolt.DefaultOptions
 	opts.NoSync = !syncWrites
+	// Avoid blocking indefinitely when another process already holds the file lock.
+	opts.Timeout = 100 * time.Millisecond
 	path := filepath.Join(dirPath, bptreeIndexFiuleName)
 	db, err := bbolt.Open(path, os.ModePerm, opts)
 	if err != nil {

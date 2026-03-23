@@ -35,6 +35,7 @@ type DB struct {
 	seqNoFileExist bool                      //序列号文件是否存在
 	isInitial      bool                      //是否是初始加载
 	fileLock       *flock.Flock              //文件锁，确保同一时间只有一个进程访问数据库
+	bytesWrite     uint                      //记录自上次同步以来写入的字节数，用于控制何时执行同步
 }
 
 // Open 打开或创建一个 Bitcask 数据库实例，加载数据文件并构建内存索引。
@@ -281,10 +282,19 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	if err := db.activeFile.Write(encodedStr); err != nil {
 		return nil, err
 	}
-	// 如果配置了 SyncWrites，则在每次写入后立即将数据刷新到磁盘
-	if db.options.SyncWrites {
+	db.bytesWrite += uint(size)
+	var needSync = db.options.SyncWrites
+	// 如果没有配置 SyncWrites，则根据 BytesPerSync 配置来控制何时执行同步，避免频繁的磁盘 I/O 操作，提高性能
+	if !needSync && db.options.BytesPerSync > 0 && db.bytesWrite >= db.options.BytesPerSync {
+		needSync = true
+	}
+
+	if needSync {
 		if err := db.activeFile.Sync(); err != nil {
 			return nil, err
+		}
+		if db.bytesWrite > 0 {
+			db.bytesWrite = 0
 		}
 	}
 	pos := &data.LogRecordPos{
