@@ -341,3 +341,38 @@ func TestBPlusTreeTransactionRollback(t *testing.T) {
 		t.Fatalf("Get(tx-r2) after rollback = non-nil, want nil")
 	}
 }
+
+func TestBPlusTreeFileLockExclusive(t *testing.T) {
+	dir := t.TempDir()
+	first := NewBPlusTree(dir, false)
+	if first == nil {
+		t.Fatalf("NewBPlusTree(first) returned nil")
+	}
+	t.Cleanup(func() { _ = first.Close() })
+
+	// 同一路径下再次以可写方式打开，应因为文件锁失败而返回 nil。
+	second := NewBPlusTree(dir, false)
+	if second != nil {
+		_ = second.Close()
+		t.Fatalf("NewBPlusTree(second) = non-nil, want nil due to file lock")
+	}
+}
+
+func TestBPlusTreeFileLockReleaseAfterClose(t *testing.T) {
+	dir := t.TempDir()
+	first := NewBPlusTree(dir, false)
+	if first == nil {
+		t.Fatalf("NewBPlusTree(first) returned nil")
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close(first) error = %v", err)
+	}
+
+	// 关闭后应能再次打开，说明文件锁已释放。
+	second := NewBPlusTree(dir, false)
+	if second == nil {
+		t.Fatalf("NewBPlusTree(second) returned nil, want non-nil after close")
+	}
+	t.Cleanup(func() { _ = second.Close() })
+}

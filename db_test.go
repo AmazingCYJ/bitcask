@@ -121,6 +121,9 @@ func TestOpenReloadIndexFromDataFiles(t *testing.T) {
 	if err := db1.Delete([]byte("k2")); err != nil {
 		t.Fatalf("Delete(k2) error = %v", err)
 	}
+	if err := db1.Close(); err != nil {
+		t.Fatalf("Close(first) error = %v", err)
+	}
 
 	db2, err := Open(opts)
 	if err != nil {
@@ -469,4 +472,43 @@ func TestFold(t *testing.T) {
 	if gotKeys[0] != "a" || gotKeys[1] != "b" {
 		t.Fatalf("Fold() with early stop keys = %v, want [a b]", gotKeys)
 	}
+}
+
+func TestOpenFileLockExclusive(t *testing.T) {
+	dir := t.TempDir()
+	opts := testOptions(dir)
+
+	db1, err := Open(opts)
+	if err != nil {
+		t.Fatalf("Open(first) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db1.Close()
+	})
+
+	_, err = Open(opts)
+	if !errors.Is(err, common.ErrDataBaseIsUsing) {
+		t.Fatalf("Open(second) error = %v, want ErrDataBaseIsUsing", err)
+	}
+}
+
+func TestOpenFileLockReleaseAfterClose(t *testing.T) {
+	dir := t.TempDir()
+	opts := testOptions(dir)
+
+	db1, err := Open(opts)
+	if err != nil {
+		t.Fatalf("Open(first) error = %v", err)
+	}
+	if err := db1.Close(); err != nil {
+		t.Fatalf("Close(first) error = %v", err)
+	}
+
+	db2, err := Open(opts)
+	if err != nil {
+		t.Fatalf("Open(second) after close error = %v", err)
+	}
+	defer func() {
+		_ = db2.Close()
+	}()
 }

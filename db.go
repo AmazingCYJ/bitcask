@@ -14,9 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/gofrs/flock"
 )
 
-const seqNoKey = "seq.no"
+const (
+	seqNoKey     = "seq.no"
+	fileLockName = "flock"
+)
 
 type DB struct {
 	options        Options
@@ -29,6 +34,7 @@ type DB struct {
 	isMerging      bool                      //是否正在进行合并操作
 	seqNoFileExist bool                      //序列号文件是否存在
 	isInitial      bool                      //是否是初始加载
+	fileLock       *flock.Flock              //文件锁，确保同一时间只有一个进程访问数据库
 }
 
 // Open 打开或创建一个 Bitcask 数据库实例，加载数据文件并构建内存索引。
@@ -46,6 +52,16 @@ func Open(options Options) (*DB, error) {
 			return nil, err
 		}
 	}
+	// 判断当前数据目录是否正在使用
+	fileLock := flock.New(filepath.Join(options.DirPath, fileLockName))
+	hold, err := fileLock.TryLock()
+	if err != nil {
+		return nil, err
+	}
+	if !hold {
+		return nil, common.ErrDataBaseIsUsing
+	}
+
 	entries, err := os.ReadDir(options.DirPath)
 	if err != nil {
 		return nil, err
@@ -60,6 +76,7 @@ func Open(options Options) (*DB, error) {
 		oldfiles:  make(map[uint32]*data.DataFile),
 		index:     index.NewIndexer(options.IndexType, options.DirPath, options.SyncWrites),
 		isInitial: isInitial,
+		fileLock:  fileLock,
 	}
 	// 3.1加载数merge据目录
 	if err := db.loadMegreFiles(); err != nil {
@@ -99,6 +116,11 @@ func Open(options Options) (*DB, error) {
 
 // Close 关闭数据库实例，释放资源。
 func (db *DB) Close() error {
+	defer func() {
+		if err := db.fileLock.Unlock(); err != nil {
+			panic("failed to release file lock")
+		}
+	}()
 	if db.activeFile == nil {
 		return nil
 	}
