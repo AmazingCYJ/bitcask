@@ -22,6 +22,9 @@ type WriteBatch struct {
 
 // NewWriteBatch 创建一个新的 WriteBatch 实例，接受批量写入选项。
 func (db *DB) NewWriteBatch(options common.WriteBatchOptions) *WriteBatch {
+	if db.options.IndexType == common.BPlusTreeIndex && !db.seqNoFileExist && !db.isInitial {
+		panic("B+树索引必须存在序列号文件")
+	}
 	return &WriteBatch{
 		options:       options,
 		mu:            &sync.Mutex{},

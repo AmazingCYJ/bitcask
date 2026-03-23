@@ -38,6 +38,13 @@ func OpenMergeDataFile(dirPath string) (*DataFile, error) {
 	filePath := filepath.Join(dirPath, MergeFinishedFileName)
 	return newDatafile(filePath, 0)
 }
+
+// OpenSeqNoFile 打开序列号文件
+func OpenSeqNoFile(dirPath string) (*DataFile, error) {
+	filePath := filepath.Join(dirPath, SeqNoFileName)
+	return newDatafile(filePath, 0)
+}
+
 func GetDataFileName(dirPath string, fileID uint32) string {
 	return filepath.Join(dirPath, fmt.Sprintf("%09d", fileID)+DataFileSuffix)
 }

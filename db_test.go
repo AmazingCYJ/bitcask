@@ -10,6 +10,7 @@ func testOptions(dir string) common.Options {
 	return common.Options{
 		DirPath:      dir,
 		DataFileSize: 1024 * 1024,
+		IndexType:    common.BTreeIndex,
 		SyncWrites:   true,
 	}
 }

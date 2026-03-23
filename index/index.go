@@ -20,14 +20,18 @@ type Indexer interface {
 	Size() int
 	// Iterator 获取索引迭代器
 	Iterator(reverse bool) IndexIterator
+	// Close 关闭索引器，释放相关资源。
+	Close() error
 }
 
-func NewIndexer(idextype IndexerType) Indexer {
+func NewIndexer(idextype IndexerType, dirPath string, sync bool) Indexer {
 	switch idextype {
 	case BTreeIndex:
 		return NewBTree()
 	case ARTreeIndex:
 		return NewARTree()
+	case BPlusTreeIndex:
+		return NewBPlusTree(dirPath, sync)
 	default:
 		panic("unsupported index type")
 	}

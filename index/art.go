@@ -80,6 +80,9 @@ func (art *AdaptiveRadixTree) Iterator(reverse bool) IndexIterator {
 
 	return newARTIterator(art.tree, reverse)
 }
+func (art *AdaptiveRadixTree) Close() error {
+	return nil
+}
 
 // ARTIterator 基于 Adaptive Radix Tree 实现的索引迭代器。
 type ARTIterator struct {

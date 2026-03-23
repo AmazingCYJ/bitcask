@@ -69,6 +69,9 @@ func (bt *BTree) Iterator(reverse bool) IndexIterator {
 
 	return newBTreeIterator(bt.tree, reverse)
 }
+func (bt *BTree) Close() error {
+	return nil
+}
 
 // BTreeIterator 基于 BTree 实现的索引迭代器。
 type BTreeIterator struct {

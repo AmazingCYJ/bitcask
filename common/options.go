@@ -26,19 +26,23 @@ const (
 	// 未来可以添加其他索引类型，如 HashIndex、LSMTreeIndex 等
 	//ARTreeIndex
 	ARTreeIndex
+	// BPlusTreeIndex 基于 B+ Tree 实现的索引
+	BPlusTreeIndex
 )
 
 const (
 	DataFileSuffix        = ".data"          // 数据文件后缀
 	HintFileName          = "hin-index"      // Hint 文件名
 	MergeFinishedFileName = "merge-finished" // Merge 完成标识文件名
+	SeqNoFileName         = "seq-no"         // 序列号文件名
 )
 
 var DefaultOptions = Options{
 	DirPath:      os.TempDir(),      // 默认使用系统临时目录
 	DataFileSize: 256 * 1024 * 1024, // 默认数据文件大小为 256MB
-	IndexType:    BTreeIndex,        // 默认使用 BTree 索引
-	SyncWrites:   false,             // 默认启用同步写入
+	// IndexType:    BTreeIndex,        // 默认使用 BTree 索引
+	IndexType:  BPlusTreeIndex, // 默认使用 B+ Tree 索引
+	SyncWrites: false,          // 默认启用同步写入
 }
 var DefaultIteratorOptions = IteratorOptions{
 	Prefix:  nil,   // 默认不使用前缀过滤
