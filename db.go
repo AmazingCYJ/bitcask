@@ -39,6 +39,12 @@ type DB struct {
 	bytesWrite     uint                      //记录自上次同步以来写入的字节数，用于控制何时执行同步
 	reclaimSize    int64                     //已废弃数据的总大小，用于触发合并操作
 }
+type Stat struct {
+	KeyNum         uint  //key的数量
+	DataFileNum    uint  //数据文件的数量
+	ReclaimbleSize int64 //可回收的大小
+	DiskSize       int64 //磁盘占用大小
+}
 
 // Open 打开或创建一个 Bitcask 数据库实例，加载数据文件并构建内存索引。
 func Open(options Options) (*DB, error) {
@@ -173,6 +179,22 @@ func (db *DB) Sync() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	return db.activeFile.Sync()
+}
+
+// Stat 返回数据库的统计信息，包括 key 的数量、数据文件的数量、可回收的大小和磁盘占用大小。
+func (db *DB) Stat() *Stat {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	var dataFiles = uint(len(db.oldfiles))
+	if db.activeFile != nil {
+		dataFiles++
+	}
+	return &Stat{
+		KeyNum:         uint(db.index.Size()),
+		DataFileNum:    dataFiles,
+		ReclaimbleSize: db.reclaimSize,
+		DiskSize:       0,
+	}
 }
 
 // 写入 key/value 数据 ,key 不能为空
