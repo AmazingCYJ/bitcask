@@ -2,6 +2,7 @@ package fio
 
 import (
 	"bitcask-my/common"
+	"os"
 
 	"golang.org/x/exp/mmap"
 )
@@ -13,6 +14,10 @@ type MMap struct {
 
 // NewMMapIOManager 创建一个 mmap 读取器。
 func NewMMapIOManager(filePath string) (*MMap, error) {
+	_, err := os.OpenFile(filePath, os.O_CREATE, DataFilePerm)
+	if err != nil {
+		return nil, err
+	}
 	readerAt, err := mmap.Open(filePath)
 	if err != nil {
 		return nil, err

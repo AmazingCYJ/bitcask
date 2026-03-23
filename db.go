@@ -4,6 +4,7 @@ import (
 	"bitcask-my/common"
 	. "bitcask-my/common"
 	"bitcask-my/data"
+	"bitcask-my/fio"
 	"bitcask-my/index"
 	"encoding/binary"
 	"errors"
@@ -97,6 +98,12 @@ func Open(options Options) (*DB, error) {
 		//5.从数据文件加载索引到内存
 		if err := db.loadIndexFromDataFiles(); err != nil {
 			return nil, err
+		}
+		// 重置ID类型为标准文件 IO
+		if db.options.MMapAtStartup {
+			if err := db.resetIoType(); err != nil {
+				return nil, err
+			}
 		}
 	}
 	//6.如果是B+树索引需要从数据文件加载索引到内存中去
@@ -319,7 +326,7 @@ func (db *DB) setActiveDataFile() error {
 		initialFileId = db.activeFile.FileID + 1
 	}
 	//打开新的数据文件
-	datafile, err := data.OpenDataFile(db.options.DirPath, initialFileId)
+	datafile, err := data.OpenDataFile(db.options.DirPath, initialFileId, fio.StandardFIO)
 	if err != nil {
 		return err
 	}
@@ -457,7 +464,11 @@ func (db *DB) loadDataFiles() error {
 	db.fileIds = fileIds
 	//4.加载数据文件
 	for i, fileId := range fileIds {
-		dataFile, err := data.OpenDataFile(db.options.DirPath, uint32(fileId))
+		ioType := fio.StandardFIO
+		if db.options.MMapAtStartup {
+			ioType = fio.MemoryMap
+		}
+		dataFile, err := data.OpenDataFile(db.options.DirPath, uint32(fileId), ioType)
 		if err != nil {
 			return err
 		}
@@ -545,4 +556,19 @@ func parseLogRecordKey(key []byte) ([]byte, uint64) {
 	seqNo, n := binary.Uvarint(key)
 	realKey := key[n:]
 	return realKey, seqNo
+}
+
+func (db *DB) resetIoType() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	if err := db.activeFile.SetIOManager(db.options.DirPath, fio.StandardFIO); err != nil {
+		return err
+	}
+	for _, dataFile := range db.oldfiles {
+		if err := dataFile.SetIOManager(db.options.DirPath, fio.StandardFIO); err != nil {
+			return err
+		}
+	}
+	return nil
 }
