@@ -27,8 +27,7 @@ func NewIndexer(idextype IndexerType) Indexer {
 	case BTreeIndex:
 		return NewBTree()
 	case ARTreeIndex:
-		// 返回 ARTree 索引实现
-		return nil
+		return NewARTree()
 	default:
 		panic("unsupported index type")
 	}
